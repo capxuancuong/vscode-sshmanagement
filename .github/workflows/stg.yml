@@ -13,6 +13,7 @@ jobs:
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
+    # Chỉ chạy khi push tag vào branch master và tag không có suffix -stg
     if: |
       github.ref_type == 'tag' && 
       startsWith(github.ref_name, 'v') && 
@@ -58,11 +59,12 @@ jobs:
       - name: Notify success
         if: success()
         run: |
-          echo "✅ Production deployment thành công!"
+          echo "✅ Production Github Action thành công!"
 
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
+    # Chỉ chạy khi push tag vào branch staging và tag có suffix -stg
     if: |
       github.ref_type == 'tag' && 
       startsWith(github.ref_name, 'v') && 
@@ -108,22 +110,174 @@ jobs:
       - name: Notify success
         if: success()
         run: |
-          echo "✅ Staging deployment thành công!"
+          echo "✅ Staging Github Action thành công!"
 
-  notification:
-    name: Send Notifications
+  slack-notification-production:
+    name: Slack Notification - Production
     runs-on: ubuntu-latest
-    needs: [deploy-production, deploy-staging]
-    if: always()
+    needs: [deploy-production]
+    if: always() && needs.deploy-production.result != 'skipped'
     
     steps:
-      - name: Notify deployment status
-        run: |
-          if [ "${{ needs.deploy-production.result }}" == "success" ]; then
-            echo "📢 Production deployment: SUCCESS"
-          fi
-          if [ "${{ needs.deploy-staging.result }}" == "success" ]; then
-            echo "📢 Staging deployment: SUCCESS"
-          fi
-          # Thêm logic notification của bạn ở đây
-          # Ví dụ: Slack, Discord, Email, etc.
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "${{ needs.deploy-production.result == 'success' && '✅ Production Github Action Success' || '❌ Production Github Action Failed' }}",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Environment:*\nProduction 🚀"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Status:*\n${{ needs.deploy-production.result == 'success' && 'Success ✅' || 'Failed ❌' }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:*\nmaster"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Version:*\n${{ github.ref_name }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Triggered by:*\n${{ github.actor }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Commit:*\n<${{ github.event.repository.html_url }}/commit/${{ github.sha }}|${{ github.sha }}>"
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Repository:* <${{ github.event.repository.html_url }}|${{ github.repository }}>"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Workflow"
+                      },
+                      "url": "${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "context",
+                  "elements": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "Workflow: `${{ github.workflow }}` | Run #${{ github.run_number }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+  slack-notification-staging:
+    name: Slack Notification - Staging
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: always() && needs.deploy-staging.result != 'skipped'
+    
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "${{ needs.deploy-staging.result == 'success' && '✅ Staging Github Action Success' || '❌ Staging Github Action Failed' }}",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Environment:*\nStaging 🧪"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Status:*\n${{ needs.deploy-staging.result == 'success' && 'Success ✅' || 'Failed ❌' }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:*\nstaging"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Version:*\n${{ github.ref_name }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Triggered by:*\n${{ github.actor }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Commit:*\n<${{ github.event.repository.html_url }}/commit/${{ github.sha }}|${{ github.sha }}>"
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Repository:* <${{ github.event.repository.html_url }}|${{ github.repository }}>"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Workflow"
+                      },
+                      "url": "${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "context",
+                  "elements": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "Workflow: `${{ github.workflow }}` | Run #${{ github.run_number }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
