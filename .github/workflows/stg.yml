@@ -1,4 +1,4 @@
-name: Deploy Pipeline
+name: Github Action Pipeline
 
 on:
   push:
@@ -8,12 +8,14 @@ on:
     tags:
       - 'v[0-9]+.*'
       - 'v[0-9]+.*-stg'
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    # Chỉ chạy khi push tag vào branch master và tag không có suffix -stg
     if: |
       github.ref_type == 'tag' && 
       startsWith(github.ref_name, 'v') && 
@@ -43,18 +45,18 @@ jobs:
             exit 1
           fi
           echo "✅ Tag thuộc branch master"
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.PROD_AWS_ACCOUNT_ID }}:role/hwca-prod-oidc-github-policy
+          aws-region: ${{ vars.PROD_AWS_REGION }}
 
-      - name: Deploy to Production
-        run: |
-          echo "🚀 Deploying version ${{ github.ref_name }} to PRODUCTION"
-          echo "Branch: master"
-          echo "Tag: ${{ github.ref_name }}"
-          # Thêm logic deploy production của bạn ở đây
-          # Ví dụ:
-          # - Build Docker image
-          # - Push to production registry
-          # - Deploy to production cluster
-          # - Run smoke tests
+      - name: Build
+        run: zip -r source.zip . -x "**/.git/**" "**/node_modules/**" "**/.venv/**" "**/venv/**" "**/.pytest_cache/**" "**/__pycache__/**"
+
+      - name: Upload to S3
+        run: aws s3 cp source.zip s3://${{ vars.PROD_AWS_BUCKET_NAME }}/source.zip
 
       - name: Notify success
         if: success()
@@ -64,7 +66,6 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    # Chỉ chạy khi push tag vào branch staging và tag có suffix -stg
     if: |
       github.ref_type == 'tag' && 
       startsWith(github.ref_name, 'v') && 
@@ -95,17 +96,17 @@ jobs:
           fi
           echo "✅ Tag thuộc branch staging"
 
-      - name: Deploy to Staging
-        run: |
-          echo "🚀 Deploying version ${{ github.ref_name }} to STAGING"
-          echo "Branch: staging"
-          echo "Tag: ${{ github.ref_name }}"
-          # Thêm logic deploy staging của bạn ở đây
-          # Ví dụ:
-          # - Build Docker image
-          # - Push to staging registry
-          # - Deploy to staging cluster
-          # - Run integration tests
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.STG_AWS_ACCOUNT_ID }}:role/hwca-stg-oidc-github-policy
+          aws-region: ${{ vars.STG_AWS_REGION }}
+
+      - name: Build
+        run: zip -r source.zip . -x "**/.git/**" "**/node_modules/**" "**/.venv/**" "**/venv/**" "**/.pytest_cache/**" "**/__pycache__/**"
+
+      - name: Upload to S3
+        run: aws s3 cp source.zip s3://${{ vars.STG_AWS_BUCKET_NAME }}/source.zip
 
       - name: Notify success
         if: success()
